@@ -105,3 +105,32 @@ src/com/wolweb/
 ├── Store.java    # 配置存储 (管理员账号 + MAC 列表)
 └── Wol.java      # Wake-on-LAN 魔术包发送
 ```
+
+## Windows 部署
+
+**方式一: 一键部署 (推荐, 需管理员)**
+
+以管理员身份打开 PowerShell, 在 `wolweb.jar` 同目录执行:
+
+```powershell
+# 解除脚本执行限制 (仅需一次)
+Set-ExecutionPolicy -Scope Process Bypass
+
+.\deploy-windows.ps1
+```
+
+脚本会自动: 检查 Java → 复制 jar 到 `C:\wolweb` → 放行防火墙 TCP 9999 → 注册开机自启计划任务 (WOLWeb) → 立即启动。
+
+自定义参数:
+
+```powershell
+.\deploy-windows.ps1 -JarPath C:\tmp\wolweb.jar -InstallDir D:\wolweb -Port 9999
+# 卸载 (停止服务, 移除自启和防火墙规则)
+.\deploy-windows.ps1 -Uninstall
+```
+
+**方式二: 手动运行**
+
+双击 `start.bat` 即可后台运行, 或命令行执行 `java -jar wolweb.jar`。
+
+Windows 防火墙手动放行: 控制面板 → Windows Defender 防火墙 → 高级设置 → 入站规则 → 新建规则 → 端口 → TCP 9999 → 允许连接。

@@ -1,2 +1,107 @@
-# wolweb
-这个是一个用java写的web端的，可以设置管理员账号密码的程序，可以做到MAC地址广播到局域网中来打开电脑
+# 局域网唤醒 (WOL Web)
+
+一个零依赖的 Java 网页工具：监听 `9999` 端口，首次访问设置管理员账号，登录后可管理局域网电脑的 MAC 地址并一键远程唤醒。
+
+- 纯 JDK 实现（`com.sun.net.httpserver`），**无任何第三方依赖**
+- 单文件 jar 约 19KB，兼容 **JDK 17+**（Linux / Windows / macOS 均可运行）
+- 密码 PBKDF2 加盐加密存储，不落明文
+- 唤醒包自动广播到本机所有网段（UDP 9 端口）+ `255.255.255.255`
+
+## 快速开始
+
+```bash
+# 方式一: 直接运行预编译 jar (已提供 Release 时)
+java -jar wolweb.jar
+
+# 方式二: 从源码构建
+./build.sh
+java -jar build/wolweb.jar
+```
+
+启动后浏览器访问 `http://服务器IP:9999`：
+
+1. 首次访问自动进入「设置管理员账号」页面
+2. 登录后点击「添加电脑」，填写名称和 MAC 地址
+3. 需要唤醒时点击对应电脑的「唤醒」按钮
+
+## 功能
+
+| 功能 | 说明 |
+| --- | --- |
+| 管理员账号 | 首次运行设置，用户名 + 密码（至少 6 位） |
+| 登录会话 | Cookie 会话，12 小时有效，可退出登录 |
+| MAC 管理 | 添加 / 删除电脑（名称 + MAC 地址） |
+| 远程唤醒 | 一键发送 Wake-on-LAN 魔术包 |
+| MAC 格式 | 支持 `AA:BB:CC:DD:EE:FF`、`AA-BB-CC-DD-EE-FF`、无分隔符格式 |
+
+## 配置
+
+- 配置文件 `wolweb.properties` 生成在 jar 所在目录（源码运行则为当前工作目录）
+- 修改端口：`java -jar wolweb.jar --port 8080` 或环境变量 `PORT=8080`
+- 忘记密码：删除 `wolweb.properties` 后重启，重新设置管理员
+
+## 构建
+
+```bash
+./build.sh          # 输出到 build/wolweb.jar
+# 等价命令:
+# javac --release 17 -encoding UTF-8 -d build/classes src/com/wolweb/*.java
+# jar cfe build/wolweb.jar com.wolweb.Main -C build/classes .
+```
+
+## 部署 (Linux)
+
+后台运行：
+
+```bash
+nohup java -jar wolweb.jar > wolweb.log 2>&1 &
+```
+
+放行防火墙端口：
+
+```bash
+# firewalld (CentOS/RHEL)
+firewall-cmd --permanent --add-port=9999/tcp && firewall-cmd --reload
+
+# ufw (Ubuntu/Debian)
+ufw allow 9999/tcp
+```
+
+systemd 开机自启（`/etc/systemd/system/wolweb.service`）：
+
+```ini
+[Unit]
+Description=WOL Web
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/wolweb
+ExecStart=/usr/bin/java -jar /opt/wolweb/wolweb.jar
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl daemon-reload
+systemctl enable --now wolweb
+```
+
+## 唤醒失败的排查
+
+- 目标电脑需在 BIOS 中开启 Wake-on-LAN
+- 操作系统内开启「魔术包唤醒」（Windows 设备管理器网卡属性 → 电源管理）
+- WOL 一般仅**有线网卡**支持，无线网卡通常无效
+- 路由器可能隔离广播包，可尝试开启目标机的静态 ARP 或换用支持 WOL 的路由器
+
+## 源码结构
+
+```
+src/com/wolweb/
+├── Main.java     # 入口: 启动 HTTP 服务 (端口 9999)
+├── Handler.java  # 路由 / 会话 / 表单处理
+├── Pages.java    # 页面 HTML 渲染
+├── Store.java    # 配置存储 (管理员账号 + MAC 列表)
+└── Wol.java      # Wake-on-LAN 魔术包发送
+```

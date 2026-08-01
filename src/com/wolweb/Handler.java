@@ -9,6 +9,7 @@ import java.io.OutputStream;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +44,10 @@ public class Handler implements HttpHandler {
                 if (!store.isConfigured()) redirect(ex, "/setup");
                 else if (!isLoggedIn(ex)) redirect(ex, "/login");
                 else handleMain(ex, query);
+                return;
+            }
+            if (path.equals("/api") || path.startsWith("/api/")) {
+                handleApi(ex, path, method);
                 return;
             }
             switch (path) {
@@ -168,10 +173,156 @@ public class Handler implements HttpHandler {
         return false;
     }
 
+    // ---------- API ----------
+
+    private void handleApi(HttpExchange ex, String path, String method) throws IOException {
+        String body = method.equals("GET") || method.equals("DELETE") ? "" : readBody(ex);
+        switch (path) {
+            case "/api/health" -> apiJson(ex, 200, Map.of("status", "ok", "version", "1.3"));
+            case "/api/login" -> apiLogin(ex, body);
+            case "/api/macs" -> {
+                if (method.equals("GET")) apiListMacs(ex);
+                else if (method.equals("POST")) apiAddMac(ex, body);
+                else jsonError(ex, 405, "不支持的请求方法");
+            }
+            case "/api/wake" -> apiWake(ex, body);
+            default -> {
+                if (path.startsWith("/api/macs/") && method.equals("DELETE")) {
+                    apiDeleteMac(ex, path.substring("/api/macs/".length()));
+                } else {
+                    jsonError(ex, 404, "接口不存在");
+                }
+            }
+        }
+    }
+
+    private void apiLogin(HttpExchange ex, String body) throws IOException {
+        Map<String, Object> json;
+        try {
+            json = Json.object(Json.parse(body));
+        } catch (Exception e) {
+            jsonError(ex, 400, "JSON 格式错误");
+            return;
+        }
+        String user = Json.string(json.get("user"));
+        String password = Json.string(json.get("password"));
+        if (!store.isConfigured()) {
+            jsonError(ex, 403, "尚未设置管理员, 请先访问网页完成初始化");
+            return;
+        }
+        if (store.verifyLogin(user, password)) {
+            String token = UUID.randomUUID().toString().replace("-", "");
+            sessions.put(token, System.currentTimeMillis());
+            ex.getResponseHeaders().add("Set-Cookie",
+                    "WOL_SESSION=" + token + "; Path=/; HttpOnly; SameSite=Lax");
+            apiJson(ex, 200, Map.of("ok", true, "token", token, "user", store.adminUser()));
+        } else {
+            jsonError(ex, 401, "用户名或密码错误");
+        }
+    }
+
+    private void apiListMacs(HttpExchange ex) throws IOException {
+        if (!apiAuth(ex)) return;
+        List<Object> list = new ArrayList<>();
+        for (Store.MacEntry m : store.listMacs()) {
+            list.add(Map.of("id", m.id(), "name", m.name(), "addr", m.addr()));
+        }
+        apiJson(ex, 200, Map.of("macs", list));
+    }
+
+    private void apiAddMac(HttpExchange ex, String body) throws IOException {
+        if (!apiAuth(ex)) return;
+        Map<String, Object> json;
+        try {
+            json = Json.object(Json.parse(body));
+        } catch (Exception e) {
+            jsonError(ex, 400, "JSON 格式错误");
+            return;
+        }
+        String name = Json.string(json.get("name"));
+        String addr = Json.string(json.get("addr"));
+        if (name == null || name.trim().isEmpty()) {
+            jsonError(ex, 400, "名称不能为空");
+            return;
+        }
+        try {
+            Wol.parseMac(addr == null ? "" : addr);
+        } catch (IllegalArgumentException e) {
+            jsonError(ex, 400, e.getMessage());
+            return;
+        }
+        Store.MacEntry entry = store.addMac(name, addr);
+        apiJson(ex, 201, Map.of("ok", true, "id", entry.id(), "name", entry.name(), "addr", entry.addr()));
+    }
+
+    private void apiDeleteMac(HttpExchange ex, String id) throws IOException {
+        if (!apiAuth(ex)) return;
+        if (store.removeMac(id == null ? "" : id)) {
+            apiJson(ex, 200, Map.of("ok", true));
+        } else {
+            jsonError(ex, 404, "未找到该电脑");
+        }
+    }
+
+    private void apiWake(HttpExchange ex, String body) throws IOException {
+        if (!apiAuth(ex)) return;
+        Map<String, Object> json;
+        try {
+            json = Json.object(Json.parse(body));
+        } catch (Exception e) {
+            jsonError(ex, 400, "JSON 格式错误");
+            return;
+        }
+        String id = Json.string(json.get("id"));
+        String macAddr = Json.string(json.get("mac"));
+        Store.MacEntry entry = null;
+        if (id != null && !id.isEmpty()) entry = store.getMac(id);
+        if (entry == null && macAddr != null && !macAddr.isEmpty()) entry = new Store.MacEntry("", "", macAddr);
+        if (entry == null) {
+            jsonError(ex, 404, "未找到该电脑 (请传 id 或 mac)");
+            return;
+        }
+        try {
+            List<String> sent = wol.wake(entry.addr());
+            apiJson(ex, 200, Map.of("ok", true, "name", entry.name(), "mac", entry.addr(), "sent", sent));
+        } catch (Exception e) {
+            jsonError(ex, 400, "唤醒失败: " + e.getMessage());
+        }
+    }
+
+    private boolean apiAuth(HttpExchange ex) throws IOException {
+        if (validSession(apiToken(ex))) return true;
+        jsonError(ex, 401, "未登录或会话已过期, 请先调用 /api/login");
+        return false;
+    }
+
+    private static void apiJson(HttpExchange ex, int code, Object data) throws IOException {
+        byte[] bytes = Json.stringify(data).getBytes(StandardCharsets.UTF_8);
+        ex.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        ex.sendResponseHeaders(code, bytes.length);
+        try (OutputStream os = ex.getResponseBody()) {
+            os.write(bytes);
+        }
+    }
+
+    private static void jsonError(HttpExchange ex, int code, String msg) throws IOException {
+        apiJson(ex, code, Map.of("error", msg));
+    }
+
     // ---------- 会话 ----------
 
     private boolean isLoggedIn(HttpExchange ex) {
-        String token = cookie(ex, "WOL_SESSION");
+        return validSession(apiToken(ex));
+    }
+
+    /** 从请求头 Authorization: Bearer <token> 或 Cookie 中取登录凭证 */
+    private static String apiToken(HttpExchange ex) {
+        String auth = ex.getRequestHeaders().getFirst("Authorization");
+        if (auth != null && auth.startsWith("Bearer ")) return auth.substring(7).trim();
+        return cookie(ex, "WOL_SESSION");
+    }
+
+    private boolean validSession(String token) {
         if (token == null) return false;
         Long last = sessions.get(token);
         if (last == null) return false;
@@ -255,5 +406,11 @@ public class Handler implements HttpHandler {
         return URLEncoder.encode(s, StandardCharsets.UTF_8);
     }
 }
+
+
+
+
+
+
 
 

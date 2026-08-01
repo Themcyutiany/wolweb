@@ -88,10 +88,10 @@ public class Store {
         return macs.get(id);
     }
 
-    public synchronized boolean addMac(String name, String addr) {
+    public synchronized MacEntry addMac(String name, String addr) {
         String n = name == null ? "" : name.trim();
         String a = addr == null ? "" : addr.trim();
-        if (n.isEmpty() || a.isEmpty()) return false;
+        if (n.isEmpty() || a.isEmpty()) return null;
         int next = 1;
         for (String key : props.stringPropertyNames()) {
             if (key.startsWith("mac.") && key.endsWith(".addr")) {
@@ -106,9 +106,10 @@ public class Store {
         String id = String.valueOf(next);
         props.setProperty("mac." + id + ".name", n);
         props.setProperty("mac." + id + ".addr", a);
-        macs.put(id, new MacEntry(id, n, a));
+        MacEntry entry = new MacEntry(id, n, a);
+        macs.put(id, entry);
         save();
-        return true;
+        return entry;
     }
 
     public synchronized boolean removeMac(String id) {
@@ -167,3 +168,4 @@ public class Store {
         }
     }
 }
+

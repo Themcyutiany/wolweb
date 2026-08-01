@@ -33,13 +33,65 @@ java -jar build/wolweb.jar
 | MAC 管理 | 添加 / 删除电脑（名称 + MAC 地址） |
 | 远程唤醒 | 一键发送 Wake-on-LAN 魔术包 |
 | MAC 格式 | 支持 `AA:BB:CC:DD:EE:FF`、`AA-BB-CC-DD-EE-FF`、无分隔符格式 |
+| IPv6 支持 | 网页/API 双栈监听，IPv6 用方括号访问: `http://[IPv6地址]:9999` |
+| IPv6 排查 | 先确认服务在运行且是最新 jar；本机测试用「本机测试」地址；局域网设备优先用推荐的 IPv4 地址（2409 公网 IPv6 能否访问取决于路由器） |
 
 ## 配置
 
 - 配置文件 `wolweb.properties` 生成在 jar 所在目录（源码运行则为当前工作目录）
 - 修改端口：`java -jar wolweb.jar --port 8080` 或环境变量 `PORT=8080`
 - 忘记密码：删除 `wolweb.properties` 后重启，重新设置管理员
+- 停止服务：终端里输入 `stop` 回车（前台运行时），或另开终端执行 `java -jar wolweb.jar --stop`（无需管理员权限）
+- 启动后终端会自动打印本机真实访问地址（局域网/IPv6/本机），直接复制即可
+- 查看帮助：`java -jar wolweb.jar --help`
 
+
+## API 接口
+
+除 `/api/health` 和 `/api/login` 外, 所有接口都需要登录凭证 (二选一):
+
+- 请求头 `Authorization: Bearer <token>` (token 由 `/api/login` 返回)
+- 浏览器 Cookie (网页登录后自动携带)
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/health` | 服务状态 (无需登录) |
+| POST | `/api/login` | 登录, 返回 token |
+| GET | `/api/macs` | 电脑列表 |
+| POST | `/api/macs` | 添加电脑 `{name, addr}` |
+| DELETE | `/api/macs/{id}` | 删除电脑 |
+| POST | `/api/wake` | 唤醒 `{id}` 或 `{mac}` |
+
+### 示例
+
+```bash
+# 1. 登录, 返回 {"ok":true,"token":"...","user":"admin"}
+curl -X POST http://IP:9999/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"user":"admin","password":"admin123"}'
+
+# 2. 添加电脑
+curl -X POST http://IP:9999/api/macs \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"客厅电脑","addr":"AA:BB:CC:DD:EE:FF"}'
+
+# 3. 唤醒 (按 id 或直接按 MAC)
+curl -X POST http://IP:9999/api/wake \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"id":"1"}'
+curl -X POST http://IP:9999/api/wake \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"mac":"AA:BB:CC:DD:EE:FF"}'
+
+# 4. 列表 / 删除
+curl http://IP:9999/api/macs -H "Authorization: Bearer <token>"
+curl -X DELETE http://IP:9999/api/macs/1 -H "Authorization: Bearer <token>"
+```
+
+错误时返回 `{"error":"..."}` + 对应状态码 (400/401/403/404/405)。
 ## 构建
 
 ```bash
@@ -165,12 +217,17 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```powershell
 .\deploy-windows.ps1 -JarPath C:\tmp\wolweb.jar -InstallDir D:\wolweb -Port 9999
 # 卸载 (停止服务, 移除自启和防火墙规则)
-.\deploy-windows.ps1 -Uninstall
+.\deploy-windows.ps1 -Uninstall（卸载时普通权限即可停止服务；移除自启任务和防火墙规则需管理员）
 ```
 
-**方式二: 手动运行**
+**方式二: 手动运行 (无需管理员)**
 
-双击 `start.bat` 即可后台运行, 或命令行执行 `java -jar wolweb.jar`。
+命令行执行 `java -jar wolweb.jar` 即可, 终端里输入 `stop` 回车可停止服务。
 
 Windows 防火墙手动放行: 控制面板 → Windows Defender 防火墙 → 高级设置 → 入站规则 → 新建规则 → 端口 → TCP 9999 → 允许连接。
+
+
+
+
+
 

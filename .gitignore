@@ -1,0 +1,4 @@
+build/
+*.pid
+wolweb.properties
+.wolweb/

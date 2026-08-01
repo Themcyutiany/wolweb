@@ -1,0 +1,14 @@
+services:
+  wolweb:
+    build: .
+    image: wolweb:latest
+    container_name: wolweb
+    restart: unless-stopped
+    # Linux 推荐 host 网络: 唤醒广播包才能直接到达局域网
+    network_mode: host
+    volumes:
+      - ./wolweb-data:/data
+    # Windows/macOS (Docker Desktop) 不支持 host 网络时, 改用端口映射:
+    # 注释掉上面的 network_mode, 取消下面两行注释
+    # ports:
+    #   - "9999:9999"

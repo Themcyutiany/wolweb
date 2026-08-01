@@ -49,6 +49,45 @@ java -jar build/wolweb.jar
 # jar cfe build/wolweb.jar com.wolweb.Main -C build/classes .
 ```
 
+
+## Docker 部署
+
+> WOL 依赖 UDP 广播包, Linux 下请务必使用 `--network host`, 否则容器内的广播无法到达局域网。
+
+### 方式一: docker run
+
+```bash
+docker build -t wolweb .
+docker run -d --name wolweb --restart=always \
+  --network host \
+  -v $PWD/wolweb-data:/data \
+  wolweb
+```
+
+- `--network host`: 容器共享宿主机网络, 唤醒广播才能发到局域网
+- `-v $PWD/wolweb-data:/data`: 持久化配置文件 `wolweb.properties`
+- 常用命令: 查看日志 `docker logs -f wolweb`, 停止 `docker stop wolweb`, 删除 `docker rm wolweb`
+
+### 方式二: docker compose
+
+```bash
+docker compose up -d --build
+docker compose down    # 停止
+```
+
+### Windows / macOS (Docker Desktop)
+
+Docker Desktop 不支持 host 网络, 请改用端口映射 (广播唤醒可能因 NAT 无法到达局域网):
+
+```bash
+docker run -d --name wolweb -p 9999:9999 -v $PWD/wolweb-data:/data wolweb
+```
+
+### 说明
+
+- 多阶段构建: 第一阶段用 JDK 编译打包, 第二阶段仅用 JRE 运行, 镜像更小
+- 容器内 jar 位于 `/opt/wolweb/wolweb.jar`, 配置文件生成在 `/data`
+- 构建镜像不需要本机安装 Java
 ## 部署 (Linux)
 
 后台运行：
@@ -134,3 +173,4 @@ Set-ExecutionPolicy -Scope Process Bypass
 双击 `start.bat` 即可后台运行, 或命令行执行 `java -jar wolweb.jar`。
 
 Windows 防火墙手动放行: 控制面板 → Windows Defender 防火墙 → 高级设置 → 入站规则 → 新建规则 → 端口 → TCP 9999 → 允许连接。
+

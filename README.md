@@ -10,7 +10,7 @@
 ## 快速开始
 
 ```bash
-# 方式一: 直接运行预编译 jar (已提供 Release 时)
+# 方式一: 直接运行仓库内预编译 jar
 java -jar wolweb.jar
 
 # 方式二: 从源码构建
